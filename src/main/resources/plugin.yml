@@ -5,3 +5,14 @@ api-version: '1.21'
 author: murqin
 description: Synchronizes villager trade discounts across all players on the server.
 website: https://github.com/murqin/GlobalVillagerDiscounts
+
+commands:
+  gvd:
+    description: Admin commands for GlobalVillagerDiscounts
+    usage: /gvd <info|clear|disable|enable>
+    permission: gvd.admin
+
+permissions:
+  gvd.admin:
+    description: Allows use of /gvd admin commands
+    default: op
