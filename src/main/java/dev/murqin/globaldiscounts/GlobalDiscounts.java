@@ -10,7 +10,9 @@ import org.bukkit.entity.Villager;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.VillagerCareerChangeEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.Merchant;
 import org.bukkit.inventory.MerchantInventory;
 import org.bukkit.inventory.MerchantRecipe;
@@ -24,15 +26,15 @@ import java.util.List;
 /**
  * GlobalVillagerDiscounts - Synchronizes villager trade discounts across all players.
  * 
- * <p>Stores discounts in PDC (PersistentDataContainer) - completely separate from vanilla gossip.
- * When plugin is removed, discounts stop working automatically.</p>
+ * <p>Stores discounts by recipe hash (result + ingredient) for accurate matching.
+ * Clears discounts on career change. Separate from vanilla gossip.</p>
  * 
  * @author murqin
- * @version 1.0.0
+ * @version 1.2.0
  */
 public final class GlobalDiscounts extends JavaPlugin implements Listener {
 
-    private static final String DISCOUNT_KEY_PREFIX = "discount_";
+    private static final String DISCOUNT_KEY_PREFIX = "d_";
     private NamespacedKey enabledKey;
 
     @Override
@@ -44,11 +46,19 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
-        getLogger().info("GlobalVillagerDiscounts disabled. Synced discounts will no longer apply.");
+        getLogger().info("GlobalVillagerDiscounts disabled.");
     }
 
-    private NamespacedKey getDiscountKey(int index) {
-        return new NamespacedKey(this, DISCOUNT_KEY_PREFIX + index);
+    /**
+     * Creates a unique key for a recipe based on result and first ingredient.
+     */
+    private NamespacedKey getRecipeKey(MerchantRecipe recipe) {
+        ItemStack result = recipe.getResult();
+        ItemStack ingredient = recipe.getIngredients().get(0);
+        
+        // Create hash from result type + ingredient type + ingredient amount
+        String hash = result.getType().name() + "_" + ingredient.getType().name() + "_" + ingredient.getAmount();
+        return new NamespacedKey(this, DISCOUNT_KEY_PREFIX + hash.hashCode());
     }
 
     @Override
@@ -70,6 +80,7 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
         switch (args[0].toLowerCase()) {
             case "info" -> handleInfo(sender);
             case "clear" -> handleClear(sender);
+            case "clearall" -> handleClearAll(sender);
             case "disable" -> handleDisable(sender);
             case "enable" -> handleEnable(sender);
             default -> sendHelp(sender);
@@ -81,7 +92,8 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
     private void sendHelp(CommandSender sender) {
         sender.sendMessage(ChatColor.GREEN + "=== GlobalVillagerDiscounts Admin ===");
         sender.sendMessage(ChatColor.YELLOW + "/gvd info " + ChatColor.GRAY + "- Show synced discount info");
-        sender.sendMessage(ChatColor.YELLOW + "/gvd clear " + ChatColor.GRAY + "- Clear synced discounts");
+        sender.sendMessage(ChatColor.YELLOW + "/gvd clear " + ChatColor.GRAY + "- Clear synced discounts (one villager)");
+        sender.sendMessage(ChatColor.YELLOW + "/gvd clearall " + ChatColor.GRAY + "- Clear ALL synced discounts (all villagers)");
         sender.sendMessage(ChatColor.YELLOW + "/gvd disable " + ChatColor.GRAY + "- Disable sync for villager");
         sender.sendMessage(ChatColor.YELLOW + "/gvd enable " + ChatColor.GRAY + "- Enable sync for villager");
     }
@@ -94,11 +106,10 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
 
         // Manual raycast for Spigot compatibility
         Villager target = null;
-        double closestDistance = 5.0; // Max distance
+        double closestDistance = 5.0;
         
         for (Entity entity : player.getNearbyEntities(5, 5, 5)) {
             if (entity instanceof Villager villager) {
-                // Check if player is looking at this villager
                 org.bukkit.util.Vector toEntity = villager.getEyeLocation().toVector()
                     .subtract(player.getEyeLocation().toVector());
                 org.bukkit.util.Vector direction = player.getLocation().getDirection();
@@ -106,7 +117,6 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
                 double angle = toEntity.angle(direction);
                 double distance = player.getLocation().distance(villager.getLocation());
                 
-                // Within ~15 degree cone and closer than current target
                 if (angle < 0.26 && distance < closestDistance) {
                     closestDistance = distance;
                     target = villager;
@@ -136,11 +146,13 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
         
         List<MerchantRecipe> recipes = villager.getRecipes();
         int storedCount = 0;
-        for (int i = 0; i < recipes.size(); i++) {
-            Integer stored = pdc.get(getDiscountKey(i), PersistentDataType.INTEGER);
+        for (MerchantRecipe recipe : recipes) {
+            NamespacedKey key = getRecipeKey(recipe);
+            Integer stored = pdc.get(key, PersistentDataType.INTEGER);
             if (stored != null && stored < 0) {
                 storedCount++;
-                sender.sendMessage(ChatColor.GRAY + "  Recipe " + i + ": " + ChatColor.AQUA + stored + " emeralds");
+                sender.sendMessage(ChatColor.GRAY + "  " + recipe.getResult().getType().name() + 
+                                  ": " + ChatColor.AQUA + stored + " emeralds");
             }
         }
         
@@ -153,19 +165,44 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
         Villager villager = getTargetVillager(sender);
         if (villager == null) return;
 
+        int cleared = clearVillagerDiscounts(villager);
+        sender.sendMessage(ChatColor.GREEN + "Cleared " + cleared + " synced discounts.");
+    }
+
+    private void handleClearAll(CommandSender sender) {
+        int villagersCleared = 0;
+        int discountsCleared = 0;
+        
+        for (org.bukkit.World world : getServer().getWorlds()) {
+            for (Villager villager : world.getEntitiesByClass(Villager.class)) {
+                int cleared = clearVillagerDiscounts(villager);
+                if (cleared > 0) {
+                    discountsCleared += cleared;
+                    villagersCleared++;
+                }
+            }
+        }
+        
+        sender.sendMessage(ChatColor.GREEN + "Cleared " + discountsCleared + " discounts from " + villagersCleared + " villagers.");
+    }
+
+    /**
+     * Clears all synced discounts from a villager.
+     * @return Number of discounts cleared
+     */
+    private int clearVillagerDiscounts(Villager villager) {
         PersistentDataContainer pdc = villager.getPersistentDataContainer();
         List<MerchantRecipe> recipes = villager.getRecipes();
         
         int cleared = 0;
-        for (int i = 0; i < recipes.size(); i++) {
-            NamespacedKey key = getDiscountKey(i);
+        for (MerchantRecipe recipe : recipes) {
+            NamespacedKey key = getRecipeKey(recipe);
             if (pdc.has(key)) {
                 pdc.remove(key);
                 cleared++;
             }
         }
-        
-        sender.sendMessage(ChatColor.GREEN + "Cleared " + cleared + " synced discounts.");
+        return cleared;
     }
 
     private void handleDisable(CommandSender sender) {
@@ -182,6 +219,20 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
 
         villager.getPersistentDataContainer().set(enabledKey, PersistentDataType.BYTE, (byte) 1);
         sender.sendMessage(ChatColor.GREEN + "Discount sync ENABLED for this villager.");
+    }
+
+    /**
+     * Clears synced discounts when villager changes profession.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onCareerChange(VillagerCareerChangeEvent event) {
+        Villager villager = event.getEntity();
+        int cleared = clearVillagerDiscounts(villager);
+        
+        if (cleared > 0) {
+            getLogger().info("Cleared " + cleared + " synced discounts from villager " + 
+                           villager.getUniqueId() + " due to career change.");
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -208,24 +259,23 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
         }
 
         // Skip Hero of the Village
-        boolean hasHeroEffect = player.hasPotionEffect(org.bukkit.potion.PotionEffectType.HERO_OF_THE_VILLAGE);
-        
-        if (!hasHeroEffect) {
-            captureDiscounts(villager, merchant);
-            applyStoredDiscounts(villager, merchant);
+        if (player.hasPotionEffect(org.bukkit.potion.PotionEffectType.HERO_OF_THE_VILLAGE)) {
+            return;
         }
+
+        captureDiscounts(villager, merchant);
+        applyStoredDiscounts(villager, merchant);
     }
 
     private void captureDiscounts(Villager villager, Merchant merchant) {
         PersistentDataContainer pdc = villager.getPersistentDataContainer();
         List<MerchantRecipe> recipes = merchant.getRecipes();
 
-        for (int i = 0; i < recipes.size(); i++) {
-            MerchantRecipe recipe = recipes.get(i);
+        for (MerchantRecipe recipe : recipes) {
             int currentDiscount = recipe.getSpecialPrice();
             
             if (currentDiscount < 0) {
-                NamespacedKey key = getDiscountKey(i);
+                NamespacedKey key = getRecipeKey(recipe);
                 Integer storedDiscount = pdc.get(key, PersistentDataType.INTEGER);
                 
                 if (storedDiscount == null || currentDiscount < storedDiscount) {
@@ -242,9 +292,8 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
 
         boolean hasChanges = false;
         
-        for (int i = 0; i < originalRecipes.size(); i++) {
-            MerchantRecipe original = originalRecipes.get(i);
-            NamespacedKey key = getDiscountKey(i);
+        for (MerchantRecipe original : originalRecipes) {
+            NamespacedKey key = getRecipeKey(original);
             Integer storedDiscount = pdc.get(key, PersistentDataType.INTEGER);
             int currentDiscount = original.getSpecialPrice();
             
@@ -266,7 +315,6 @@ public final class GlobalDiscounts extends JavaPlugin implements Listener {
         int basePrice = original.getIngredients().get(0).getAmount();
         int adjustedPrice = basePrice + discount;
         
-        // Ensure minimum price of 1
         if (adjustedPrice < 1) {
             discount = -(basePrice - 1);
         }
