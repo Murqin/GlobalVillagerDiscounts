@@ -50,7 +50,7 @@ GlobalVillagerDiscounts shares villager trade discounts among all players. When 
 
 ## 📥 Installation
 
-1. Download the latest JAR from [Releases](https://github.com/murqin/GlobalVillagerDiscounts/releases)
+1. Download the latest JAR from [Modrinth](https://modrinth.com/plugin/globalvillagerdiscounts)
 2. Place in your `plugins` folder
 3. Restart server
 4. Done!
