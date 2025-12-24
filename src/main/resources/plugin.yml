@@ -1,6 +1,6 @@
 name: GlobalVillagerDiscounts
 version: ${project.version}
-main: dev.murqin.globaldiscounts.GlobalDiscounts
+main: dev.murqin.globaldiscounts.GlobalVillagerDiscounts
 api-version: '1.21'
 author: murqin
 description: Synchronizes villager trade discounts across all players on the server.
