@@ -43,7 +43,7 @@
 ## [1.2.0] - 2024-12-24
 
 ### Added
-- SOLID architecture refactoring
+- Codebase polished and refactored
 - bStats integration (Plugin ID: 28505)
 - Share command (`/gvd share on/off`)
 
