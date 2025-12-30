@@ -1,6 +1,6 @@
 # Note
 
-- **The coding of this tool was done entirely by AI.**
+- **The coding of this Plugin was done entirely by AI.**
 - **If some people have security concerns about this project because it involves AI, and they understand security, they can contribute to this project. I generally insist that the code should comply with S.O.L.I.D. to make it readable and to make it easy to add features. I think the code is readable.**
 
 
