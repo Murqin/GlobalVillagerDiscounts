@@ -10,6 +10,7 @@
 [![Java Version](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/)
 [![Spigot](https://img.shields.io/badge/Spigot%20%2F%20Paper-Compatible-blue.svg)](https://www.spigotmc.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![bStats](https://img.shields.io/bstats/servers/28448)](https://bstats.org/plugin/bukkit/AdvancedAFK/28505)
 
 **Synchronize villager curing discounts across all players on your server!**
 
